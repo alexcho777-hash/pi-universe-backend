@@ -39,7 +39,7 @@ router.get('/', async (req: Request, res: Response) => {
       FROM donations d
       JOIN users u ON d.user_id = u.id
       WHERE d.is_anonymous = FALSE
-      GROUP BY d.user_id
+      GROUP BY d.user_id, u.username
       ORDER BY total_donated DESC
       LIMIT 10`
     );
@@ -53,7 +53,7 @@ router.get('/', async (req: Request, res: Response) => {
         MAX(a.created_at) as last_activity
       FROM activities a
       JOIN users u ON a.user_id = u.id
-      GROUP BY a.user_id
+      GROUP BY a.user_id, u.username
       ORDER BY activity_count DESC
       LIMIT 10`
     );
@@ -131,7 +131,7 @@ router.get('/sanctuary/:id', async (req: Request, res: Response) => {
       FROM donations d
       JOIN users u ON d.user_id = u.id
       WHERE d.sanctuary_id = ? AND d.is_anonymous = FALSE
-      GROUP BY d.user_id
+      GROUP BY d.user_id, u.username
       ORDER BY total_donated DESC
       LIMIT 10`,
       [sanctuaryId]

@@ -14,7 +14,7 @@ export class ShopService {
     limit: number = 20,
     offset: number = 0
   ): Promise<{ items: ShopItem[]; total: number }> {
-    let query = 'SELECT * FROM shop_items WHERE sanctuary_id = ? AND status = "active"';
+    let query = "SELECT * FROM shop_items WHERE sanctuary_id = ? AND status = 'active'";
     const params: any[] = [sanctuaryId];
 
     if (category) {

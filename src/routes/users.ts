@@ -36,7 +36,7 @@ router.post('/sync', async (req: Request, res: Response) => {
 
     // Check if user already exists by pi_uid
     const [existingUsers] = await pool.execute(
-      'SELECT id, user_id, username, pi_uid, current_sanctuary_id, created_at FROM users WHERE pi_uid = ?',
+      'SELECT id, username, pi_uid, current_sanctuary_id, created_at FROM users WHERE pi_uid = ?',
       [pi_uid]
     );
 
@@ -100,7 +100,9 @@ router.post('/sync', async (req: Request, res: Response) => {
 
     // Add user to default sanctuary
     await pool.execute(
-      'INSERT IGNORE INTO user_sanctuaries (user_id, sanctuary_id, is_primary) VALUES (?, ?, true)',
+      `INSERT INTO user_sanctuaries (user_id, sanctuary_id, is_primary)
+       VALUES (?, ?, true)
+       ON CONFLICT (user_id, sanctuary_id) DO NOTHING`,
       [newUserId, defaultSanctuaryId]
     );
 

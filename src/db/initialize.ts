@@ -12,11 +12,18 @@ export async function initializeSchema(): Promise<void> {
     const schemaPath = path.join(__dirname, 'schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
 
-    // Split SQL statements and execute each one
+    // Split SQL statements and execute each one, skipping chunks that are only comments
     const statements = schema
       .split(';')
       .map(stmt => stmt.trim())
-      .filter(stmt => stmt.length > 0);
+      .filter(stmt => {
+        const codeOnly = stmt
+          .split('\n')
+          .filter(line => !line.trim().startsWith('--'))
+          .join('\n')
+          .trim();
+        return codeOnly.length > 0;
+      });
 
     const pool = getPool();
 
@@ -25,9 +32,13 @@ export async function initializeSchema(): Promise<void> {
         await pool.execute(statement);
         console.log(`✓ Executed: ${statement.substring(0, 50)}...`);
       } catch (error: any) {
-        // Ignore "table already exists" errors
-        if (error.code === 'ER_TABLE_EXISTS_ERROR' || error.message.includes('already exists')) {
-          console.log(`⚠ Table already exists: ${statement.substring(0, 50)}...`);
+        // Ignore "already exists" errors (Postgres duplicate_table = 42P07, duplicate index/constraint, etc.)
+        if (
+          error.code === '42P07' ||
+          error.code === '42710' ||
+          (error.message && error.message.includes('already exists'))
+        ) {
+          console.log(`⚠ Already exists, skipping: ${statement.substring(0, 50)}...`);
         } else {
           throw error;
         }
@@ -116,7 +127,9 @@ export async function createUserSanctuary(
 ): Promise<boolean> {
   try {
     await getPool().execute(
-      'INSERT IGNORE INTO user_sanctuaries (user_id, sanctuary_id, is_primary) VALUES (?, ?, ?)',
+      `INSERT INTO user_sanctuaries (user_id, sanctuary_id, is_primary)
+       VALUES (?, ?, ?)
+       ON CONFLICT (user_id, sanctuary_id) DO NOTHING`,
       [userId, sanctuaryId, isPrimary]
     );
     return true;

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { extractTokenFromHeader, verifyToken } from '../utils/auth';
+import { getPool } from '../db/connection';
 import { RequestUser } from '../types';
 
 // Extend Express Request type to include user
@@ -7,15 +8,56 @@ declare global {
   namespace Express {
     interface Request {
       user?: RequestUser;
+      userId?: number;
     }
   }
 }
 
 /**
- * Middleware to verify JWT token and extract user information
+ * Middleware to authenticate a request.
+ *
+ * Supports two schemes:
+ *  1. Pi Network web auth (preferred): an `X-Pi-UID` header, set by the web
+ *     frontend after Pi.authenticate() + /api/users/sync. Looked up against
+ *     the `users` table and sets both req.userId (numeric id) and req.user.
+ *  2. Legacy JWT bearer token (`Authorization: Bearer <token>`), kept for
+ *     backward compatibility with any older client.
  */
-export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const piUid = req.headers['x-pi-uid'] as string | undefined;
+
+    if (piUid) {
+      const pool = getPool();
+      const [rows] = await pool.execute(
+        'SELECT id, current_sanctuary_id, pi_uid FROM users WHERE pi_uid = ?',
+        [piUid]
+      );
+      const users = rows as any[];
+
+      if (users.length === 0) {
+        res.status(401).json({
+          success: false,
+          error: 'Pi 用户尚未同步，请先呼叫 /api/users/sync',
+          error_code: 'PI_USER_NOT_FOUND',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const dbUser = users[0];
+      req.userId = dbUser.id;
+      req.user = {
+        user_id: String(dbUser.id),
+        sanctuary_id: dbUser.current_sanctuary_id,
+        pi_uid: dbUser.pi_uid,
+      };
+
+      next();
+      return;
+    }
+
+    // Fallback: legacy JWT bearer token
     const token = extractTokenFromHeader(req.headers.authorization);
 
     if (!token) {
