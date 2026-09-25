@@ -58,18 +58,15 @@ router.get('/', async (req: Request, res: Response) => {
       LIMIT 10`
     );
 
-    // Get stats
+    // Get stats (separate subqueries so joins don't multiply the sums)
     const [stats] = await getPool().execute(
       `SELECT
-        COUNT(DISTINCT u.id) as total_users,
-        COUNT(DISTINCT d.id) as total_donations,
-        COALESCE(SUM(d.amount), 0) as total_donated_amount,
-        COUNT(DISTINCT a.id) as total_activities,
-        COUNT(DISTINCT us.user_id) as total_sanctuary_members
-      FROM users u
-      LEFT JOIN donations d ON u.id = d.user_id
-      LEFT JOIN activities a ON u.id = a.user_id
-      LEFT JOIN user_sanctuaries us ON u.id = us.user_id`
+        (SELECT COUNT(*) FROM users)::int as total_users,
+        (SELECT COUNT(*) FROM donations)::int as total_donations,
+        (SELECT COALESCE(SUM(amount), 0) FROM donations)::float as total_donated_amount,
+        (SELECT COUNT(DISTINCT user_id) FROM donations)::int as total_donors,
+        (SELECT COUNT(*) FROM activities)::int as total_activities,
+        (SELECT COUNT(DISTINCT user_id) FROM user_sanctuaries)::int as total_sanctuary_members`
     );
 
     res.json({

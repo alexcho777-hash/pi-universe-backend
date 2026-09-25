@@ -14,6 +14,8 @@ import activitiesRoutes from './routes/activities';
 import sanctuariesRoutes from './routes/sanctuaries';
 import acknowledgementsRoutes from './routes/acknowledgments';
 import donationsRoutes from './routes/donations';
+import paymentsRoutes from './routes/payments';
+import practiceRoutes from './routes/practice';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,6 +48,8 @@ app.use('/api/users', usersRoutes);
 app.use('/api/sanctuaries', sanctuariesRoutes);
 app.use('/api/acknowledgments', acknowledgementsRoutes);
 app.use('/api/donations', donationsRoutes);
+app.use('/api/payments', paymentsRoutes);
+app.use('/api/practice', practiceRoutes);
 app.use('/api/activities', authMiddleware, sanctuaryIsolationMiddleware, activitiesRoutes);
 
 // Serve index.html for all non-API routes (SPA support)
@@ -58,8 +62,8 @@ app.get('*', (req, res) => {
       error_code: 'NOT_FOUND'
     });
   }
-  // Serve index.html for frontend routes
-  res.sendFile(path.join(__dirname, '../public/index.html'));
+  // This service is API-only; the web app is deployed separately (pi-universe-web).
+  res.json({ service: 'π Universe API', status: 'OK', health: '/health' });
 });
 
 // 404 handler (unreachable but kept for completeness)
@@ -117,7 +121,8 @@ Key Endpoints:
   POST   /api/shop/:item_id/purchase - 购买物品
 
 ⚠️  Environment: ${process.env.NODE_ENV || 'development'}
-🔐 Database: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}
+🔐 Database: ${process.env.DATABASE_URL ? 'DATABASE_URL' : `${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`}
+🔑 PI_API_KEY: ${process.env.PI_API_KEY ? 'set' : 'MISSING'}
       `);
     });
   } catch (error) {

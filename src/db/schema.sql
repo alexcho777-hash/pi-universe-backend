@@ -213,3 +213,29 @@ INSERT INTO sanctuaries (name, religion_type, description, icon, color, language
   ('日本神社', 'shinto', '日本傳統神社', '⛩️', '#FF6B6B', 'zh-TW'),
   ('印度廟', 'hindu', '印度教靈性殿堂', '🕉️', '#FF9933', 'zh-TW')
 ON CONFLICT (religion_type) DO UPDATE SET updated_at = CURRENT_TIMESTAMP;
+
+-- ============================================================
+-- Pi Payments (added for Pi Testnet/Mainnet payments)
+-- ============================================================
+
+-- Every Pi payment we have approved, and what happened to it
+CREATE TABLE IF NOT EXISTS pi_payments (
+  id SERIAL PRIMARY KEY,
+  payment_id VARCHAR(255) UNIQUE NOT NULL,
+  pi_uid VARCHAR(255) NOT NULL,
+  user_id INT REFERENCES users(id) ON DELETE SET NULL,
+  sanctuary_id INT REFERENCES sanctuaries(id) ON DELETE SET NULL,
+  amount DECIMAL(18, 7) NOT NULL,
+  memo TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'approved' CHECK (status IN ('approved', 'completed', 'cancelled')),
+  txid VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_pi_payments_pi_uid ON pi_payments(pi_uid);
+
+-- Link donations to the Pi payment that paid for them (one donation per payment)
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS pi_payment_id VARCHAR(255);
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS pi_txid VARCHAR(255);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_donations_pi_payment_id ON donations(pi_payment_id);
