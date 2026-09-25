@@ -253,3 +253,18 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+
+-- ============================================================
+-- Daily visitors (參訪統計): one row per person per sanctuary per day
+-- (the day is counted in Taiwan time)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS sanctuary_daily_visits (
+  id SERIAL PRIMARY KEY,
+  sanctuary_id INT NOT NULL REFERENCES sanctuaries(id) ON DELETE CASCADE,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  visit_date DATE NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT unique_daily_visit UNIQUE (sanctuary_id, user_id, visit_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_visits_sanctuary_date ON sanctuary_daily_visits(sanctuary_id, visit_date);

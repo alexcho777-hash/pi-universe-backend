@@ -29,6 +29,12 @@ async function findUserByPiUid(piUid: string): Promise<{ id: number; current_san
   return list.length > 0 ? list[0] : null;
 }
 
+/** The donor chose to appear as 隱名善信 in the merit book */
+function isAnonymous(payment: PiPayment): boolean {
+  const v = payment.metadata && payment.metadata.anonymous;
+  return v === true || v === 'true' || v === 1;
+}
+
 function sanctuaryIdOf(payment: PiPayment): number | null {
   const raw = payment.metadata && (payment.metadata.sanctuary_id ?? payment.metadata.sanctuaryId);
   const id = parseInt(String(raw), 10);
@@ -55,9 +61,9 @@ async function recordDonation(payment: PiPayment, txid: string | null): Promise<
 
   await pool.execute(
     `INSERT INTO donations (user_id, sanctuary_id, amount, currency, message, is_anonymous, pi_payment_id, pi_txid)
-     VALUES (?, ?, ?, 'pi', ?, FALSE, ?, ?)
+     VALUES (?, ?, ?, 'pi', ?, ?, ?, ?)
      ON CONFLICT (pi_payment_id) DO NOTHING`,
-    [user.id, sanctuaryId, payment.amount, payment.memo || null, payment.identifier, txid]
+    [user.id, sanctuaryId, payment.amount, payment.memo || null, isAnonymous(payment), payment.identifier, txid]
   );
 
   await pool.execute(
