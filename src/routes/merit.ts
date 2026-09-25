@@ -21,7 +21,7 @@ const router = Router();
 const DEFAULT_TZ = 'Asia/Taipei';
 
 /** The caller's IANA time zone, validated (it is inserted into SQL, so only known zone names pass). */
-function tzOf(req: Request): string {
+export function tzOf(req: Request): string {
   const raw = String(req.get('x-timezone') || req.query.tz || '').trim();
   if (!raw || raw.length > 64 || !/^[A-Za-z0-9_+\-\/]+$/.test(raw)) return DEFAULT_TZ;
   try {
@@ -32,7 +32,7 @@ function tzOf(req: Request): string {
   }
 }
 
-const TODAY = (tz: string) => `(CURRENT_TIMESTAMP AT TIME ZONE '${tz}')::date`;
+export const TODAY = (tz: string) => `(CURRENT_TIMESTAMP AT TIME ZONE '${tz}')::date`;
 const MONTH_START = (tz: string) => `date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE '${tz}')::date`;
 /** A TIMESTAMP column (stored in the server's time zone) converted to the caller's local date */
 const localDate = (col: string, tz: string) => `(${col} AT TIME ZONE current_setting('TimeZone') AT TIME ZONE '${tz}')::date`;

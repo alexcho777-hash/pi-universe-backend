@@ -17,6 +17,7 @@ import donationsRoutes from './routes/donations';
 import paymentsRoutes from './routes/payments';
 import practiceRoutes from './routes/practice';
 import meritRoutes from './routes/merit';
+import oracleRoutes from './routes/oracle';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -52,6 +53,7 @@ app.use('/api/donations', donationsRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/practice', practiceRoutes);
 app.use('/api/merit', meritRoutes);
+app.use('/api/oracle', oracleRoutes);
 app.use('/api/activities', authMiddleware, sanctuaryIsolationMiddleware, activitiesRoutes);
 
 // Serve index.html for all non-API routes (SPA support)

@@ -268,3 +268,31 @@ CREATE TABLE IF NOT EXISTS sanctuary_daily_visits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_daily_visits_sanctuary_date ON sanctuary_daily_visits(sanctuary_id, visit_date);
+
+-- ============================================================
+-- More sanctuaries: allow new religion types (e.g. Taiwanese folk temples)
+-- ============================================================
+ALTER TABLE sanctuaries DROP CONSTRAINT IF EXISTS sanctuaries_religion_type_check;
+
+INSERT INTO sanctuaries (name, religion_type, description, icon, color, language) VALUES
+  ('台灣宮廟', 'taiwan_folk', '媽祖・關聖帝君・土地公・月下老人 — 台灣民間信仰', '🏮', '#C62828', 'zh-TW')
+ON CONFLICT (religion_type) DO NOTHING;
+
+-- ============================================================
+-- Online oracle (線上求籤): the lot number is drawn on the server
+-- ============================================================
+ALTER TABLE users ADD COLUMN IF NOT EXISTS adult_confirmed_at TIMESTAMP;
+
+CREATE TABLE IF NOT EXISTS oracle_draws (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sanctuary_id INT REFERENCES sanctuaries(id) ON DELETE SET NULL,
+  oracle VARCHAR(30) NOT NULL DEFAULT 'liushi_jiazi',
+  lot_no INT NOT NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'void')),
+  draw_date DATE NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  confirmed_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_oracle_draws_user_date ON oracle_draws(user_id, draw_date);
