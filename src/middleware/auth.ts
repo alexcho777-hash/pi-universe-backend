@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { extractTokenFromHeader, verifyToken } from '../utils/auth';
-import { getPool } from '../db/connection';
 import { RequestUser } from '../types';
+import { bearerToken, findSessionUser } from '../services/Sessions';
 
 // Extend Express Request type to include user
 declare global {
@@ -13,80 +12,55 @@ declare global {
   }
 }
 
+function unauthorized(res: Response, error: string, code: string) {
+  res.status(401).json({ success: false, error, error_code: code, timestamp: new Date().toISOString() });
+}
+
+async function resolveUser(req: Request): Promise<boolean> {
+  const token = bearerToken(req.headers.authorization);
+  if (!token) return false;
+  const user = await findSessionUser(token);
+  if (!user) return false;
+  req.userId = user.id;
+  req.user = {
+    user_id: String(user.id),
+    sanctuary_id: user.current_sanctuary_id,
+    pi_uid: user.pi_uid,
+  };
+  return true;
+}
+
 /**
- * Middleware to authenticate a request.
- *
- * Supports two schemes:
- *  1. Pi Network web auth (preferred): an `X-Pi-UID` header, set by the web
- *     frontend after Pi.authenticate() + /api/users/sync. Looked up against
- *     the `users` table and sets both req.userId (numeric id) and req.user.
- *  2. Legacy JWT bearer token (`Authorization: Bearer <token>`), kept for
- *     backward compatibility with any older client.
+ * Requires a valid session (`Authorization: Bearer <session token>`).
+ * Sessions are only issued after the server verified the user with the Pi
+ * Platform API (see routes/users.ts: /sync and /pi-signin), so a caller can no
+ * longer act as someone else just by sending their Pi uid.
  */
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const piUid = req.headers['x-pi-uid'] as string | undefined;
-
-    if (piUid) {
-      const pool = getPool();
-      const [rows] = await pool.execute(
-        'SELECT id, current_sanctuary_id, pi_uid FROM users WHERE pi_uid = ?',
-        [piUid]
-      );
-      const users = rows as any[];
-
-      if (users.length === 0) {
-        res.status(401).json({
-          success: false,
-          error: 'Pi 用户尚未同步，请先呼叫 /api/users/sync',
-          error_code: 'PI_USER_NOT_FOUND',
-          timestamp: new Date().toISOString(),
-        });
-        return;
-      }
-
-      const dbUser = users[0];
-      req.userId = dbUser.id;
-      req.user = {
-        user_id: String(dbUser.id),
-        sanctuary_id: dbUser.current_sanctuary_id,
-        pi_uid: dbUser.pi_uid,
-      };
-
-      next();
+    if (!bearerToken(req.headers.authorization)) {
+      unauthorized(res, 'Please log in with Pi', 'MISSING_TOKEN');
       return;
     }
-
-    // Fallback: legacy JWT bearer token
-    const token = extractTokenFromHeader(req.headers.authorization);
-
-    if (!token) {
-      res.status(401).json({
-        success: false,
-        error: 'Missing or invalid authorization header',
-        error_code: 'MISSING_TOKEN',
-        timestamp: new Date().toISOString(),
-      });
+    if (!(await resolveUser(req))) {
+      unauthorized(res, 'Session expired, please log in again', 'INVALID_TOKEN');
       return;
     }
-
-    const payload = verifyToken(token);
-
-    req.user = {
-      user_id: payload.user_id,
-      sanctuary_id: payload.sanctuary_id,
-      pi_uid: payload.pi_uid,
-    };
-
     next();
   } catch (error: any) {
-    res.status(401).json({
-      success: false,
-      error: error.message || 'Invalid token',
-      error_code: 'INVALID_TOKEN',
-      timestamp: new Date().toISOString(),
-    });
+    console.error('Auth error:', error);
+    unauthorized(res, 'Authentication failed', 'INVALID_TOKEN');
   }
+}
+
+/** Like authMiddleware, but lets anonymous requests through (req.user stays undefined). */
+export async function optionalAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    await resolveUser(req);
+  } catch (error) {
+    console.error('Optional auth error:', error);
+  }
+  next();
 }
 
 /**

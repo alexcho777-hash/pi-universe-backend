@@ -8,122 +8,102 @@ import { sendSuccessResponse, sendErrorResponse, StatusCodes, ErrorCodes } from 
 import { getPool } from '../db/connection';
 import { authMiddleware } from '../middleware/auth';
 import { PiPlatform } from '../services/PiPlatform';
+import { createSession, deleteSession, bearerToken } from '../services/Sessions';
 
 const router = Router();
 
 /**
- * POST /api/users/sync
- * Sync or create user from Pi Network authentication
- * Body: { pi_uid, username }
- *
- * This endpoint is called by the Web app after Pi.authenticate() succeeds
- * It creates or updates the user in the database with Pi UID
+ * Find the local user for a verified Pi identity, creating it on first login.
+ */
+async function findOrCreatePiUser(piUid: string, piUsername: string) {
+  const pool = getPool();
+  const [existing] = await pool.execute(
+    'SELECT id, username, pi_uid, current_sanctuary_id, created_at FROM users WHERE pi_uid = ?',
+    [piUid]
+  );
+  const list = existing as any[];
+  if (list.length > 0) return { user: list[0], created: false };
+
+  const base = piUsername || `pioneer_${piUid.slice(0, 8)}`;
+  let localUsername = base;
+  for (let i = 1; ; i++) {
+    const [taken] = await pool.execute('SELECT id FROM users WHERE username = ?', [localUsername]);
+    if ((taken as any[]).length === 0) break;
+    localUsername = `${base}_${i}`;
+  }
+  const [sanctuaries] = await pool.execute('SELECT id FROM sanctuaries WHERE is_active = TRUE ORDER BY id LIMIT 1');
+  const sanctuaryId = (sanctuaries as any[])[0]?.id || 1;
+
+  const [ins] = await pool.execute(
+    `INSERT INTO users (username, pi_uid, current_sanctuary_id, email, password_hash)
+     VALUES (?, ?, ?, ?, ?)`,
+    [localUsername, piUid, sanctuaryId, `${piUid}@pi-network.local`, 'pi-auth']
+  );
+  const newId = (ins as any).insertId;
+  await pool.execute(
+    `INSERT INTO user_sanctuaries (user_id, sanctuary_id, is_primary) VALUES (?, ?, true)
+     ON CONFLICT (user_id, sanctuary_id) DO NOTHING`,
+    [newId, sanctuaryId]
+  );
+  return {
+    user: { id: newId, username: localUsername, pi_uid: piUid, current_sanctuary_id: sanctuaryId, created_at: new Date().toISOString() },
+    created: true,
+  };
+}
+
+/**
+ * Verify a Pi access token with the Pi Platform API, then log the user in:
+ * returns the user plus a session token for `Authorization: Bearer <token>`.
+ */
+async function loginWithPiToken(accessToken: unknown, res: Response) {
+  if (!accessToken || typeof accessToken !== 'string') {
+    sendErrorResponse(res, StatusCodes.BAD_REQUEST, ErrorCodes.VALIDATION_ERROR, 'Missing accessToken');
+    return;
+  }
+  let me: { uid: string; username: string };
+  try {
+    me = await PiPlatform.me(accessToken);
+  } catch {
+    sendErrorResponse(res, StatusCodes.UNAUTHORIZED, ErrorCodes.UNAUTHORIZED, 'Pi login token is invalid or expired');
+    return;
+  }
+  if (!me?.uid) {
+    sendErrorResponse(res, StatusCodes.UNAUTHORIZED, ErrorCodes.UNAUTHORIZED, 'Pi login token is invalid');
+    return;
+  }
+  const { user, created } = await findOrCreatePiUser(me.uid, me.username);
+  const sessionToken = await createSession(user.id);
+  sendSuccessResponse(res, created ? StatusCodes.CREATED : StatusCodes.OK, {
+    user_id: user.id,
+    pi_uid: user.pi_uid,
+    username: user.username,
+    sanctuary_id: user.current_sanctuary_id,
+    created_at: user.created_at,
+    session_token: sessionToken,
+  });
+}
+
+/**
+ * POST /api/users/sync   { accessToken }
+ * Called by the web app after Pi.authenticate() in the Pi Browser.
+ * The identity comes from Pi (GET /v2/me), never from the request body.
  */
 router.post('/sync', async (req: Request, res: Response) => {
   try {
-    const { pi_uid, username } = req.body;
-
-    if (!pi_uid || !username) {
-      sendErrorResponse(
-        res,
-        StatusCodes.BAD_REQUEST,
-        ErrorCodes.VALIDATION_ERROR,
-        'Missing required fields: pi_uid, username'
-      );
-      return;
-    }
-
-    const pool = getPool();
-
-    // Check if user already exists by pi_uid
-    const [existingUsers] = await pool.execute(
-      'SELECT id, username, pi_uid, current_sanctuary_id, created_at FROM users WHERE pi_uid = ?',
-      [pi_uid]
-    );
-
-    const existingUserList = existingUsers as any[];
-
-    if (existingUserList.length > 0) {
-      // User already exists, return their data
-      const user = existingUserList[0];
-      return sendSuccessResponse(res, StatusCodes.OK, {
-        user_id: user.id,
-        pi_uid: user.pi_uid,
-        username: user.username,
-        sanctuary_id: user.current_sanctuary_id,
-        created_at: user.created_at,
-        message: 'User already exists',
-      });
-    }
-
-    // Create new user
-    // Generate a unique local username if it conflicts
-    let localUsername = username;
-    let usernameCounter = 1;
-
-    while (true) {
-      const [usernameCheck] = await pool.execute(
-        'SELECT id FROM users WHERE username = ?',
-        [localUsername]
-      );
-
-      if ((usernameCheck as any[]).length === 0) {
-        break;
-      }
-
-      localUsername = `${username}_${usernameCounter}`;
-      usernameCounter++;
-    }
-
-    // Default to first sanctuary (Buddhist)
-    const [sanctuaries] = await pool.execute(
-      'SELECT id FROM sanctuaries WHERE is_active = TRUE LIMIT 1'
-    );
-
-    const sanctuaryList = sanctuaries as any[];
-    const defaultSanctuaryId = sanctuaryList.length > 0 ? sanctuaryList[0].id : 1;
-
-    // Insert new user
-    const [insertResult] = await pool.execute(
-      `INSERT INTO users (username, pi_uid, current_sanctuary_id, email, password_hash)
-       VALUES (?, ?, ?, ?, ?)`,
-      [
-        localUsername,
-        pi_uid,
-        defaultSanctuaryId,
-        `${pi_uid}@pi-network.local`, // Placeholder email
-        'pi-auth' // No password needed for Pi auth
-      ]
-    );
-
-    const result = insertResult as any;
-    const newUserId = result.insertId;
-
-    // Add user to default sanctuary
-    await pool.execute(
-      `INSERT INTO user_sanctuaries (user_id, sanctuary_id, is_primary)
-       VALUES (?, ?, true)
-       ON CONFLICT (user_id, sanctuary_id) DO NOTHING`,
-      [newUserId, defaultSanctuaryId]
-    );
-
-    sendSuccessResponse(res, StatusCodes.CREATED, {
-      user_id: newUserId,
-      pi_uid: pi_uid,
-      username: localUsername,
-      sanctuary_id: defaultSanctuaryId,
-      created_at: new Date().toISOString(),
-      message: 'User created successfully',
-    });
+    await loginWithPiToken(req.body?.accessToken, res);
   } catch (error: any) {
     console.error('User sync error:', error);
-    sendErrorResponse(
-      res,
-      StatusCodes.INTERNAL_SERVER_ERROR,
-      ErrorCodes.INTERNAL_ERROR,
-      error.message || 'Failed to sync user'
-    );
+    sendErrorResponse(res, StatusCodes.INTERNAL_SERVER_ERROR, ErrorCodes.INTERNAL_ERROR, error.message || 'Failed to sync user');
   }
+});
+
+/**
+ * POST /api/users/logout — ends the current session
+ */
+router.post('/logout', async (req: Request, res: Response) => {
+  const token = bearerToken(req.headers.authorization);
+  if (token) await deleteSession(token);
+  sendSuccessResponse(res, StatusCodes.OK, { message: 'Logged out' });
 });
 
 /**
@@ -244,81 +224,12 @@ router.post('/profile', authMiddleware, async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/users/pi-signin
+ * POST /api/users/pi-signin   { accessToken }
  * "Sign in with Pi" (OAuth implicit flow) for visitors in an ordinary browser.
- * Body: { accessToken }
- *
- * Unlike /sync, the identity is NOT taken from the request: the server asks the
- * Pi Platform API who the token belongs to (GET /v2/me) and uses that uid/username.
  */
 router.post('/pi-signin', async (req: Request, res: Response) => {
   try {
-    const accessToken = req.body?.accessToken;
-    if (!accessToken || typeof accessToken !== 'string') {
-      sendErrorResponse(res, StatusCodes.BAD_REQUEST, ErrorCodes.VALIDATION_ERROR, 'Missing accessToken');
-      return;
-    }
-
-    let me: { uid: string; username: string };
-    try {
-      me = await PiPlatform.me(accessToken);
-    } catch (err: any) {
-      sendErrorResponse(res, StatusCodes.UNAUTHORIZED, ErrorCodes.UNAUTHORIZED, 'Pi sign-in token is invalid or expired');
-      return;
-    }
-    if (!me?.uid) {
-      sendErrorResponse(res, StatusCodes.UNAUTHORIZED, ErrorCodes.UNAUTHORIZED, 'Pi sign-in token is invalid');
-      return;
-    }
-
-    const pool = getPool();
-    const username = me.username || `pioneer_${me.uid.slice(0, 8)}`;
-
-    const [existing] = await pool.execute(
-      'SELECT id, username, pi_uid, current_sanctuary_id, created_at FROM users WHERE pi_uid = ?',
-      [me.uid]
-    );
-    const list = existing as any[];
-    if (list.length > 0) {
-      const u = list[0];
-      return sendSuccessResponse(res, StatusCodes.OK, {
-        user_id: u.id,
-        pi_uid: u.pi_uid,
-        username: u.username,
-        sanctuary_id: u.current_sanctuary_id,
-        created_at: u.created_at,
-      });
-    }
-
-    // New user: unique local username, default sanctuary
-    let localUsername = username;
-    for (let i = 1; ; i++) {
-      const [taken] = await pool.execute('SELECT id FROM users WHERE username = ?', [localUsername]);
-      if ((taken as any[]).length === 0) break;
-      localUsername = `${username}_${i}`;
-    }
-    const [sanctuaries] = await pool.execute('SELECT id FROM sanctuaries WHERE is_active = TRUE ORDER BY id LIMIT 1');
-    const sanctuaryId = (sanctuaries as any[])[0]?.id || 1;
-
-    const [ins] = await pool.execute(
-      `INSERT INTO users (username, pi_uid, current_sanctuary_id, email, password_hash)
-       VALUES (?, ?, ?, ?, ?)`,
-      [localUsername, me.uid, sanctuaryId, `${me.uid}@pi-network.local`, 'pi-auth']
-    );
-    const newId = (ins as any).insertId;
-    await pool.execute(
-      `INSERT INTO user_sanctuaries (user_id, sanctuary_id, is_primary) VALUES (?, ?, true)
-       ON CONFLICT (user_id, sanctuary_id) DO NOTHING`,
-      [newId, sanctuaryId]
-    );
-
-    sendSuccessResponse(res, StatusCodes.CREATED, {
-      user_id: newId,
-      pi_uid: me.uid,
-      username: localUsername,
-      sanctuary_id: sanctuaryId,
-      created_at: new Date().toISOString(),
-    });
+    await loginWithPiToken(req.body?.accessToken, res);
   } catch (error: any) {
     console.error('Pi sign-in error:', error);
     sendErrorResponse(res, StatusCodes.INTERNAL_SERVER_ERROR, ErrorCodes.INTERNAL_ERROR, error.message || 'Pi sign-in failed');

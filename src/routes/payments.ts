@@ -15,6 +15,7 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../db/connection';
 import { PiPlatform, PiPayment, PiApiError } from '../services/PiPlatform';
+import { optionalAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -34,10 +35,10 @@ function sanctuaryIdOf(payment: PiPayment): number | null {
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
-/** Make sure the payment belongs to the caller (when the caller identified themselves). */
+/** Make sure the payment belongs to the logged-in caller (when there is a session). */
 function assertOwner(req: Request, payment: PiPayment) {
-  const headerUid = req.headers['x-pi-uid'] as string | undefined;
-  if (headerUid && headerUid !== payment.user_uid) {
+  const sessionUid = req.user?.pi_uid;
+  if (sessionUid && sessionUid !== payment.user_uid) {
     throw new PiApiError('This payment belongs to a different Pi user', 403, null);
   }
 }
@@ -74,7 +75,7 @@ function handleError(res: Response, where: string, err: any) {
 /**
  * POST /api/payments/approve   { paymentId }
  */
-router.post('/approve', async (req: Request, res: Response) => {
+router.post('/approve', optionalAuth, async (req: Request, res: Response) => {
   const paymentId = req.body?.paymentId;
   if (!paymentId) return fail(res, 400, 'paymentId is required');
 
@@ -114,7 +115,7 @@ router.post('/approve', async (req: Request, res: Response) => {
 /**
  * POST /api/payments/complete   { paymentId, txid }
  */
-router.post('/complete', async (req: Request, res: Response) => {
+router.post('/complete', optionalAuth, async (req: Request, res: Response) => {
   const { paymentId, txid } = req.body || {};
   if (!paymentId || !txid) return fail(res, 400, 'paymentId and txid are required');
 

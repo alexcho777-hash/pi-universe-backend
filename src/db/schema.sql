@@ -239,3 +239,17 @@ CREATE INDEX IF NOT EXISTS idx_pi_payments_pi_uid ON pi_payments(pi_uid);
 ALTER TABLE donations ADD COLUMN IF NOT EXISTS pi_payment_id VARCHAR(255);
 ALTER TABLE donations ADD COLUMN IF NOT EXISTS pi_txid VARCHAR(255);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_donations_pi_payment_id ON donations(pi_payment_id);
+
+-- ============================================================
+-- Login sessions (issued after the server verifies a Pi access token)
+-- Only a SHA-256 hash of each token is stored.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id SERIAL PRIMARY KEY,
+  token_hash VARCHAR(64) UNIQUE NOT NULL,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
