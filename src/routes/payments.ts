@@ -35,6 +35,13 @@ function isAnonymous(payment: PiPayment): boolean {
   return v === true || v === 'true' || v === 1;
 }
 
+const LAMP_PRICE = 3.14;
+const LAMP_TYPES = new Set(['guangming', 'taisui', 'wenchang']);
+
+function kindOf(payment: PiPayment): string {
+  return String((payment.metadata && payment.metadata.kind) || 'donation');
+}
+
 function sanctuaryIdOf(payment: PiPayment): number | null {
   const raw = payment.metadata && (payment.metadata.sanctuary_id ?? payment.metadata.sanctuaryId);
   const id = parseInt(String(raw), 10);
@@ -72,6 +79,38 @@ async function recordDonation(payment: PiPayment, txid: string | null): Promise<
   );
 }
 
+/** Record a completed lamp-lighting payment. Safe to call more than once per payment. */
+async function recordLamp(payment: PiPayment, txid: string | null): Promise<void> {
+  const user = await findUserByPiUid(payment.user_uid);
+  if (!user) {
+    console.warn(`[payments] no local user for pi_uid ${payment.user_uid}, payment ${payment.identifier}`);
+    return;
+  }
+  const sanctuaryId = sanctuaryIdOf(payment) || user.current_sanctuary_id || 1;
+  const rawType = String(payment.metadata?.lamp_type || '');
+  const lampType = LAMP_TYPES.has(rawType) ? rawType : 'guangming';
+  const dedicateName = payment.metadata?.dedicate_name ? String(payment.metadata.dedicate_name).slice(0, 100) : null;
+  const pool = getPool();
+
+  await pool.execute(
+    `INSERT INTO lamps (user_id, sanctuary_id, lamp_type, dedicate_name, amount, pi_payment_id, pi_txid, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP + INTERVAL '1 year')
+     ON CONFLICT (pi_payment_id) DO NOTHING`,
+    [user.id, sanctuaryId, lampType, dedicateName, payment.amount, payment.identifier, txid]
+  );
+
+  await pool.execute(
+    `UPDATE pi_payments SET status = 'completed', txid = ?, updated_at = CURRENT_TIMESTAMP WHERE payment_id = ?`,
+    [txid, payment.identifier]
+  );
+}
+
+/** Records a completed payment as whichever kind it is (a donation, unless metadata says otherwise). */
+async function recordPayment(payment: PiPayment, txid: string | null): Promise<void> {
+  if (kindOf(payment) === 'lamp') return recordLamp(payment, txid);
+  return recordDonation(payment, txid);
+}
+
 function handleError(res: Response, where: string, err: any) {
   console.error(`[payments] ${where} failed:`, err?.message, err?.body || '');
   const status = err instanceof PiApiError && err.status >= 400 && err.status < 500 ? err.status : 500;
@@ -90,6 +129,9 @@ router.post('/approve', optionalAuth, async (req: Request, res: Response) => {
     assertOwner(req, payment);
 
     if (!(payment.amount > 0)) return fail(res, 400, 'Invalid payment amount');
+    if (kindOf(payment) === 'lamp' && payment.amount < LAMP_PRICE - 0.0001) {
+      return fail(res, 400, `Lamp price is ${LAMP_PRICE} π`);
+    }
     const sanctuaryId = sanctuaryIdOf(payment);
     if (!sanctuaryId) return fail(res, 400, 'Payment metadata is missing sanctuary_id');
 
@@ -132,7 +174,7 @@ router.post('/complete', optionalAuth, async (req: Request, res: Response) => {
     if (!payment.status.developer_completed) {
       payment = await PiPlatform.completePayment(paymentId, txid);
     }
-    await recordDonation(payment, txid);
+    await recordPayment(payment, txid);
 
     res.json({ success: true, message: '感謝您的功德！', data: { paymentId, txid, amount: payment.amount } });
   } catch (err) {
@@ -176,7 +218,7 @@ router.post('/incomplete', async (req: Request, res: Response) => {
       if (!payment.status.developer_completed) {
         payment = await PiPlatform.completePayment(paymentId, txid);
       }
-      await recordDonation(payment, txid);
+      await recordPayment(payment, txid);
       return res.json({ success: true, data: { paymentId, action: 'completed' } });
     }
 

@@ -19,6 +19,8 @@ import practiceRoutes from './routes/practice';
 import meritRoutes from './routes/merit';
 import oracleRoutes from './routes/oracle';
 import boardRoutes from './routes/board';
+import lampsRoutes from './routes/lamps';
+import memorialsRoutes from './routes/memorials';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +58,8 @@ app.use('/api/practice', practiceRoutes);
 app.use('/api/merit', meritRoutes);
 app.use('/api/oracle', oracleRoutes);
 app.use('/api/board', boardRoutes);
+app.use('/api/lamps', lampsRoutes);
+app.use('/api/memorials', memorialsRoutes);
 app.use('/api/activities', authMiddleware, sanctuaryIsolationMiddleware, activitiesRoutes);
 
 // Serve index.html for all non-API routes (SPA support)

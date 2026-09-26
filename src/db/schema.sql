@@ -318,3 +318,42 @@ CREATE TABLE IF NOT EXISTS board_posts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_board_posts_religion ON board_posts(religion_type, is_official, created_at);
+
+-- ============================================================
+-- Online lamp lighting (線上點燈): 光明燈/太歲燈/文昌燈, paid in Pi.
+-- A lamp lights for 1 year from the moment it is lit (expires_at) — no tax receipt.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS lamps (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sanctuary_id INT NOT NULL REFERENCES sanctuaries(id) ON DELETE CASCADE,
+  lamp_type VARCHAR(20) NOT NULL CHECK (lamp_type IN ('guangming', 'taisui', 'wenchang')),
+  dedicate_name VARCHAR(100),
+  amount NUMERIC(12, 4) NOT NULL,
+  pi_payment_id VARCHAR(255) UNIQUE,
+  pi_txid VARCHAR(255),
+  lit_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_lamps_sanctuary ON lamps(sanctuary_id, lamp_type, expires_at);
+CREATE INDEX IF NOT EXISTS idx_lamps_user ON lamps(user_id);
+
+-- ============================================================
+-- Ancestor memorial-day reminders (忌日提醒) for the home altar (我的家中神桌).
+-- Only month/day are stored (lunar or solar) — the next occurrence is computed
+-- on the device so leap-month handling stays consistent with the rest of the site.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS memorials (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  calendar_type VARCHAR(10) NOT NULL DEFAULT 'lunar' CHECK (calendar_type IN ('lunar', 'solar')),
+  month INT NOT NULL CHECK (month BETWEEN 1 AND 12),
+  day INT NOT NULL CHECK (day BETWEEN 1 AND 30),
+  note VARCHAR(200),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_memorials_user ON memorials(user_id);
