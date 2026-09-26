@@ -21,6 +21,7 @@ import oracleRoutes from './routes/oracle';
 import boardRoutes from './routes/board';
 import lampsRoutes from './routes/lamps';
 import memorialsRoutes from './routes/memorials';
+import wishesRoutes from './routes/wishes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -60,6 +61,7 @@ app.use('/api/oracle', oracleRoutes);
 app.use('/api/board', boardRoutes);
 app.use('/api/lamps', lampsRoutes);
 app.use('/api/memorials', memorialsRoutes);
+app.use('/api/wishes', wishesRoutes);
 app.use('/api/activities', authMiddleware, sanctuaryIsolationMiddleware, activitiesRoutes);
 
 // Serve index.html for all non-API routes (SPA support)

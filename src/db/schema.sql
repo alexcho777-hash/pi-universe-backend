@@ -357,3 +357,45 @@ CREATE TABLE IF NOT EXISTS memorials (
 );
 
 CREATE INDEX IF NOT EXISTS idx_memorials_user ON memorials(user_id);
+
+-- ============================================================
+-- Two more sanctuaries: Thai Four-Faced Buddha, Vietnamese folk faith (Than Tai).
+-- ============================================================
+INSERT INTO sanctuaries (name, religion_type, description, icon, color, language) VALUES
+  ('泰國四面佛', 'thai_four_face', '四面佛（Phra Phrom）— 許願與還願', '🛕', '#F4A300', 'th-TH'),
+  ('越南民間信仰', 'vietnamese_folk', 'Than Tai 財神爺 — 在家供奉', '🪙', '#B8860B', 'vi-VN')
+ON CONFLICT (religion_type) DO NOTHING;
+
+-- ============================================================
+-- Four-Faced Buddha wishes (許願還願) — a wish is free to make. "還願" (fulfilling it)
+-- can optionally be paired with a paid offering (see vow_offerings below).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS wishes (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sanctuary_id INT NOT NULL REFERENCES sanctuaries(id) ON DELETE CASCADE,
+  category VARCHAR(20) NOT NULL CHECK (category IN ('career', 'love', 'wealth', 'health', 'study', 'other')),
+  wish_text VARCHAR(200),
+  status VARCHAR(12) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'fulfilled')),
+  fulfillment_note VARCHAR(200),
+  fulfilled_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_wishes_user ON wishes(user_id);
+
+-- Paid vow-fulfilment offerings (花環／大象), paid in Pi — mirrors the lamps table.
+CREATE TABLE IF NOT EXISTS vow_offerings (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sanctuary_id INT NOT NULL REFERENCES sanctuaries(id) ON DELETE CASCADE,
+  wish_id INT REFERENCES wishes(id) ON DELETE SET NULL,
+  offering_type VARCHAR(20) NOT NULL CHECK (offering_type IN ('garland', 'elephant')),
+  amount NUMERIC(12, 4) NOT NULL,
+  pi_payment_id VARCHAR(255) UNIQUE,
+  pi_txid VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_vow_offerings_sanctuary ON vow_offerings(sanctuary_id);
+CREATE INDEX IF NOT EXISTS idx_vow_offerings_user ON vow_offerings(user_id);

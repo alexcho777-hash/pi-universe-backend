@@ -38,6 +38,8 @@ function isAnonymous(payment: PiPayment): boolean {
 const LAMP_PRICE = 3.14;
 const LAMP_TYPES = new Set(['guangming', 'taisui', 'wenchang']);
 
+const VOW_PRICES: Record<string, number> = { garland: 1, elephant: 3.14 };
+
 function kindOf(payment: PiPayment): string {
   return String((payment.metadata && payment.metadata.kind) || 'donation');
 }
@@ -105,9 +107,44 @@ async function recordLamp(payment: PiPayment, txid: string | null): Promise<void
   );
 }
 
+/** Record a completed vow-fulfilment offering (花環／大象). Safe to call more than once per payment. */
+async function recordVowOffering(payment: PiPayment, txid: string | null): Promise<void> {
+  const user = await findUserByPiUid(payment.user_uid);
+  if (!user) {
+    console.warn(`[payments] no local user for pi_uid ${payment.user_uid}, payment ${payment.identifier}`);
+    return;
+  }
+  const sanctuaryId = sanctuaryIdOf(payment) || user.current_sanctuary_id || 1;
+  const rawType = String(payment.metadata?.offering_type || '');
+  const offeringType = VOW_PRICES[rawType] !== undefined ? rawType : 'garland';
+  const rawWishId = parseInt(String(payment.metadata?.wish_id || ''), 10);
+  const wishId = Number.isFinite(rawWishId) && rawWishId > 0 ? rawWishId : null;
+  const pool = getPool();
+
+  await pool.execute(
+    `INSERT INTO vow_offerings (user_id, sanctuary_id, wish_id, offering_type, amount, pi_payment_id, pi_txid)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (pi_payment_id) DO NOTHING`,
+    [user.id, sanctuaryId, wishId, offeringType, payment.amount, payment.identifier, txid]
+  );
+
+  if (wishId) {
+    await pool.execute(
+      `UPDATE wishes SET status = 'fulfilled', fulfilled_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND status = 'pending'`,
+      [wishId, user.id]
+    );
+  }
+
+  await pool.execute(
+    `UPDATE pi_payments SET status = 'completed', txid = ?, updated_at = CURRENT_TIMESTAMP WHERE payment_id = ?`,
+    [txid, payment.identifier]
+  );
+}
+
 /** Records a completed payment as whichever kind it is (a donation, unless metadata says otherwise). */
 async function recordPayment(payment: PiPayment, txid: string | null): Promise<void> {
   if (kindOf(payment) === 'lamp') return recordLamp(payment, txid);
+  if (kindOf(payment) === 'vow') return recordVowOffering(payment, txid);
   return recordDonation(payment, txid);
 }
 
@@ -131,6 +168,13 @@ router.post('/approve', optionalAuth, async (req: Request, res: Response) => {
     if (!(payment.amount > 0)) return fail(res, 400, 'Invalid payment amount');
     if (kindOf(payment) === 'lamp' && payment.amount < LAMP_PRICE - 0.0001) {
       return fail(res, 400, `Lamp price is ${LAMP_PRICE} π`);
+    }
+    if (kindOf(payment) === 'vow') {
+      const offeringType = String(payment.metadata?.offering_type || '');
+      const expected = VOW_PRICES[offeringType];
+      if (expected === undefined || payment.amount < expected - 0.0001) {
+        return fail(res, 400, 'Invalid vow-offering price');
+      }
     }
     const sanctuaryId = sanctuaryIdOf(payment);
     if (!sanctuaryId) return fail(res, 400, 'Payment metadata is missing sanctuary_id');
