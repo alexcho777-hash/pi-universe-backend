@@ -296,3 +296,25 @@ CREATE TABLE IF NOT EXISTS oracle_draws (
 );
 
 CREATE INDEX IF NOT EXISTS idx_oracle_draws_user_date ON oracle_draws(user_id, draw_date);
+
+-- ============================================================
+-- Announcement board / message wall (公告欄與留言板), one per religion.
+--   is_official = TRUE  -> posted with the admin key, pinned to the top
+--   is_official = FALSE -> a visitor's message, kept for 7 days then deleted
+-- Cleanup (expired official posts, messages older than 7 days, posts hidden
+-- by too many reports) runs automatically whenever the board is read.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS board_posts (
+  id SERIAL PRIMARY KEY,
+  religion_type VARCHAR(20) NOT NULL,
+  user_id INT REFERENCES users(id) ON DELETE SET NULL,
+  author_name VARCHAR(255) NOT NULL,
+  content VARCHAR(280) NOT NULL,
+  is_official BOOLEAN NOT NULL DEFAULT FALSE,
+  expires_at TIMESTAMP,
+  report_count INT NOT NULL DEFAULT 0,
+  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_board_posts_religion ON board_posts(religion_type, is_official, created_at);
