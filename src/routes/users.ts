@@ -72,6 +72,14 @@ async function loginWithPiToken(accessToken: unknown, res: Response) {
     return;
   }
   const { user, created } = await findOrCreatePiUser(me.uid, me.username);
+  // Remember the exact Pi username on every login (the admin check uses it)
+  if (me.username) {
+    try {
+      await getPool().execute('UPDATE users SET pi_username = ? WHERE id = ?', [me.username, user.id]);
+    } catch {
+      /* another account already holds this name: ignore, the check also looks at username */
+    }
+  }
   const sessionToken = await createSession(user.id);
   sendSuccessResponse(res, created ? StatusCodes.CREATED : StatusCodes.OK, {
     user_id: user.id,
