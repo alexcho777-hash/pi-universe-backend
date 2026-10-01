@@ -399,3 +399,10 @@ CREATE TABLE IF NOT EXISTS vow_offerings (
 
 CREATE INDEX IF NOT EXISTS idx_vow_offerings_sanctuary ON vow_offerings(sanctuary_id);
 CREATE INDEX IF NOT EXISTS idx_vow_offerings_user ON vow_offerings(user_id);
+
+-- Administrators chosen by the owner (the owner itself is set with the OWNER_PI_USERNAME env variable).
+CREATE TABLE IF NOT EXISTS app_admins (
+  pi_username VARCHAR(255) PRIMARY KEY,
+  added_by VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
