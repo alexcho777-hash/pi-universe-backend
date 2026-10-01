@@ -19,7 +19,7 @@ import { authMiddleware, optionalAuth } from '../middleware/auth';
 
 const router = Router();
 
-const RELIGIONS = new Set(['buddhist', 'christian', 'catholic', 'islamic', 'shinto', 'hindu', 'taiwan_folk']);
+const RELIGIONS = new Set(['buddhist', 'christian', 'catholic', 'islamic', 'shinto', 'hindu', 'taiwan_folk', 'thai_four_face', 'vietnamese_folk']);
 const MESSAGE_MAX_LEN = 200;
 const DAILY_MESSAGE_LIMIT = 5;
 const REPORT_HIDE_THRESHOLD = 5;
