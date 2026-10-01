@@ -17,6 +17,8 @@ import { authMiddleware } from '../middleware/auth';
 const router = Router();
 
 const clean = (s: unknown) => String(s || '').trim().replace(/^@/, '').toLowerCase();
+/** Owner + administrators together: at most three people */
+const MAX_PEOPLE = 3;
 const owners = () => (process.env.OWNER_PI_USERNAME || '').split(',').map(clean).filter(Boolean);
 
 function fail(res: Response, status: number, error: string) {
@@ -55,7 +57,7 @@ router.get('/list', async (req: Request, res: Response) => {
     const { role } = await roleOf((req as any).userId);
     if (!role) return fail(res, 403, 'Administrators only');
     const [rows] = await getPool().execute('SELECT pi_username, added_by, created_at FROM app_admins ORDER BY created_at');
-    res.json({ success: true, data: { owners: owners(), admins: rows } });
+    res.json({ success: true, data: { owners: owners(), admins: rows, max: MAX_PEOPLE } });
   } catch (e: any) {
     fail(res, 500, e.message);
   }
@@ -69,6 +71,8 @@ router.post('/add', async (req: Request, res: Response) => {
     if (!name || !/^[a-z0-9_.\-]{2,60}$/.test(name)) return fail(res, 400, 'Invalid Pi username');
     if (owners().includes(name)) return fail(res, 400, 'Already the owner');
     const pool = getPool();
+    const [all] = await pool.execute('SELECT pi_username FROM app_admins');
+    if (owners().length + (all as any[]).length >= MAX_PEOPLE) return fail(res, 400, 'The limit of 3 administrators has been reached');
     const [exists] = await pool.execute('SELECT pi_username FROM app_admins WHERE pi_username = ?', [name]);
     if (!(exists as any[]).length) {
       await pool.execute('INSERT INTO app_admins (pi_username, added_by) VALUES (?, ?)', [name, me.name]);
