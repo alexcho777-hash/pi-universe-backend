@@ -24,6 +24,7 @@
   "author": "princessjewelryshop168@gmail.com",
   "license": "MIT",
   "dependencies": {
+    "@stellar/stellar-sdk": "^12.3.0",
     "babylonjs": "^6.28.0",
     "babylonjs-loaders": "^6.28.0",
     "bcryptjs": "^2.4.3",

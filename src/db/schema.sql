@@ -406,3 +406,22 @@ CREATE TABLE IF NOT EXISTS app_admins (
   added_by VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- App-to-User payments sent by the administrators (needed for the Mainnet wallet application).
+CREATE TABLE IF NOT EXISTS a2u_payments (
+  id SERIAL PRIMARY KEY,
+  payment_id VARCHAR(255) UNIQUE,
+  to_pi_uid VARCHAR(255) NOT NULL,
+  to_username VARCHAR(255),
+  to_address VARCHAR(255),
+  amount NUMERIC(20, 7) NOT NULL,
+  memo VARCHAR(255),
+  status VARCHAR(20) NOT NULL DEFAULT 'created',
+  txid VARCHAR(255),
+  error TEXT,
+  sent_by VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_a2u_status ON a2u_payments(status);
