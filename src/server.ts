@@ -4,6 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import { initializeDatabase, closeDatabase } from './db/connection';
 import { initializeSchema } from './db/initialize';
+import { fixOwnerName } from './db/fixOwnerName';
 import { authMiddleware, sanctuaryIsolationMiddleware } from './middleware/auth';
 import { sendErrorResponse, StatusCodes, ErrorCodes } from './utils/errors';
 
@@ -113,6 +114,9 @@ async function startServer() {
     // Initialize database schema
     await initializeSchema();
     console.log('✓ Database schema initialized');
+
+    // One-time: give the owner's name back (does nothing once done)
+    await fixOwnerName();
 
     // Start listening
     app.listen(PORT, () => {
