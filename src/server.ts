@@ -5,6 +5,7 @@ import path from 'path';
 import { initializeDatabase, closeDatabase } from './db/connection';
 import { initializeSchema } from './db/initialize';
 import { fixOwnerName } from './db/fixOwnerName';
+import { seedNewFaiths } from './db/seedNewFaiths';
 import { authMiddleware, sanctuaryIsolationMiddleware } from './middleware/auth';
 import { sendErrorResponse, StatusCodes, ErrorCodes } from './utils/errors';
 
@@ -117,6 +118,7 @@ async function startServer() {
 
     // One-time: give the owner's name back (does nothing once done)
     await fixOwnerName();
+    await seedNewFaiths();
 
     // Start listening
     app.listen(PORT, () => {
