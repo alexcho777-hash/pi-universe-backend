@@ -41,7 +41,14 @@ router.get('/sanctuary/:id', async (req: Request, res: Response) => {
     );
     const counts: Record<string, number> = { guangming: 0, taisui: 0, wenchang: 0 };
     for (const r of rows as any[]) counts[r.lamp_type] = r.n;
-    res.json({ success: true, data: { counts, price: LAMP_PRICE } });
+    // The lit lamps themselves (type + the name the donor chose to show on the lamp), newest first.
+    const [lampRows] = await getPool().execute(
+      `SELECT lamp_type, dedicate_name FROM lamps
+       WHERE sanctuary_id = ? AND expires_at > CURRENT_TIMESTAMP
+       ORDER BY lit_at DESC LIMIT 200`,
+      [sanctuaryId]
+    );
+    res.json({ success: true, data: { counts, lamps: lampRows, price: LAMP_PRICE } });
   } catch (err) {
     console.error('[lamps] sanctuary list failed:', err);
     fail(res, 500, '讀取點燈資料失敗');
