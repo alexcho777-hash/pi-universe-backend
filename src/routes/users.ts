@@ -77,7 +77,14 @@ async function loginWithPiToken(accessToken: unknown, res: Response) {
     try {
       await getPool().execute('UPDATE users SET pi_username = ? WHERE id = ?', [me.username, user.id]);
     } catch {
-      /* another account already holds this name: ignore, the check also looks at username */
+      /* name rule not relaxed yet: ignore, the check also looks at username */
+    }
+    // Show the real Pi name (not "name_1" / "name_old_17"); the testnet and mainnet accounts of one person may share it
+    try {
+      await getPool().execute('UPDATE users SET username = ? WHERE id = ? AND username <> ?', [me.username, user.id, me.username]);
+      user.username = me.username;
+    } catch {
+      /* name rule not relaxed yet: keep the old name */
     }
   }
   const sessionToken = await createSession(user.id);
