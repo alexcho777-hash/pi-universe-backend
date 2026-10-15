@@ -75,16 +75,12 @@ async function loginWithPiToken(accessToken: unknown, res: Response) {
   // Remember the exact Pi username on every login (the admin check uses it)
   if (me.username) {
     try {
+      // An older row (stale uid from another app/key) may still hold this name: release it so
+      // payments and the admin check always point at the account that just logged in.
+      await getPool().execute('UPDATE users SET pi_username = NULL WHERE pi_username = ? AND id <> ?', [me.username, user.id]);
       await getPool().execute('UPDATE users SET pi_username = ? WHERE id = ?', [me.username, user.id]);
     } catch {
-      /* name rule not relaxed yet: ignore, the check also looks at username */
-    }
-    // Show the real Pi name (not "name_1" / "name_old_17"); the testnet and mainnet accounts of one person may share it
-    try {
-      await getPool().execute('UPDATE users SET username = ? WHERE id = ? AND username <> ?', [me.username, user.id, me.username]);
-      user.username = me.username;
-    } catch {
-      /* name rule not relaxed yet: keep the old name */
+      /* another account already holds this name: ignore, the check also looks at username */
     }
   }
   const sessionToken = await createSession(user.id);
