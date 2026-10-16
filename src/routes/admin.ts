@@ -160,7 +160,7 @@ router.get('/a2u/check', async (req: Request, res: Response) => {
         const p: any = await PiPlatform.getPayment(r.payment_id);
         out.push({
           to: r.to_username, amount: Number(r.amount), ours: r.status,
-          payment_id: r.payment_id, direction: p.direction || null, to_address: p.to_address || null,
+          payment_id: r.payment_id, direction: p.direction || null, to_address: p.to_address || null, pi_user_uid: p.user_uid || null,
           pi_network: p.network || null,
           developer_approved: p.status?.developer_approved, transaction_verified: p.status?.transaction_verified,
           developer_completed: p.status?.developer_completed, cancelled: p.status?.cancelled,
@@ -170,7 +170,17 @@ router.get('/a2u/check', async (req: Request, res: Response) => {
         out.push({ payment_id: r.payment_id, to: r.to_username, amount: Number(r.amount), ours: r.status, error: String(e?.message || e).slice(0, 120) });
       }
     }
-    res.json({ success: true, data: { wallet, network: String(process.env.PI_NETWORK || 'testnet').toLowerCase(), payments: out } });
+    // What our own database holds for each name that was paid (ids only, no secrets)
+    const names = Array.from(new Set((rows as any[]).map((r) => String(r.to_username || '').toLowerCase()).filter(Boolean)));
+    const accounts: any[] = [];
+    for (const n of names) {
+      const [u] = await getPool().execute(
+        'SELECT id, username, pi_username, pi_uid, created_at FROM users WHERE LOWER(pi_username) = ? OR LOWER(username) = ? ORDER BY id',
+        [n, n]
+      );
+      for (const a of u as any[]) accounts.push({ for: n, id: a.id, username: a.username, pi_username: a.pi_username, pi_uid: a.pi_uid, created_at: a.created_at });
+    }
+    res.json({ success: true, data: { wallet, network: String(process.env.PI_NETWORK || 'testnet').toLowerCase(), payments: out, accounts } });
   } catch (e: any) {
     fail(res, 500, e.message);
   }
