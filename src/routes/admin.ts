@@ -21,6 +21,7 @@ import { getPool } from '../db/connection';
 import { authMiddleware } from '../middleware/auth';
 import { PiPlatform, PiApiError } from '../services/PiPlatform';
 import { a2uConfigured, createA2U, submitA2U, completeA2U } from '../services/PiA2U';
+import { Keypair } from '@stellar/stellar-sdk';
 
 const router = Router();
 
@@ -40,7 +41,9 @@ async function roleOf(userId: number): Promise<{ role: Role; name: string }> {
   const [rows] = await pool.execute('SELECT username, pi_username FROM users WHERE id = ?', [userId]);
   const u = (rows as any[])[0];
   if (!u) return { role: null, name: '' };
-  const names = [clean(u.pi_username), clean(u.username)].filter(Boolean);
+  // Only the Pi username counts: it is written at login from the name Pi itself verified.
+  // The local username can be edited by the user (POST /api/users/profile), so it must never grant a role.
+  const names = [clean(u.pi_username)].filter(Boolean);
   if (names.some((n) => owners().includes(n))) return { role: 'owner', name: names[0] };
   for (const n of names) {
     const [r] = await pool.execute('SELECT pi_username FROM app_admins WHERE pi_username = ?', [n]);
@@ -139,6 +142,35 @@ router.get('/a2u/status', async (req: Request, res: Response) => {
         recent,
       },
     });
+  } catch (e: any) {
+    fail(res, 500, e.message);
+  }
+});
+
+router.get('/a2u/check', async (req: Request, res: Response) => {
+  try {
+    if (!(await requireStaff(req, res))) return;
+    // Public address of the wallet the server signs with (derived from the secret; the secret is never returned)
+    let wallet: string | null = null;
+    try { if (process.env.PI_APP_WALLET_SECRET) wallet = Keypair.fromSecret(process.env.PI_APP_WALLET_SECRET).publicKey(); } catch { wallet = 'INVALID SECRET'; }
+    const [rows] = await getPool().execute(`SELECT payment_id, to_username, amount, status FROM a2u_payments ORDER BY id DESC LIMIT 10`);
+    const out: any[] = [];
+    for (const r of rows as any[]) {
+      try {
+        const p: any = await PiPlatform.getPayment(r.payment_id);
+        out.push({
+          to: r.to_username, amount: Number(r.amount), ours: r.status,
+          payment_id: r.payment_id, direction: p.direction || null, to_address: p.to_address || null,
+          pi_network: p.network || null,
+          developer_approved: p.status?.developer_approved, transaction_verified: p.status?.transaction_verified,
+          developer_completed: p.status?.developer_completed, cancelled: p.status?.cancelled,
+          txid: p.transaction?.txid ? String(p.transaction.txid) : null,
+        });
+      } catch (e: any) {
+        out.push({ payment_id: r.payment_id, to: r.to_username, amount: Number(r.amount), ours: r.status, error: String(e?.message || e).slice(0, 120) });
+      }
+    }
+    res.json({ success: true, data: { wallet, network: String(process.env.PI_NETWORK || 'testnet').toLowerCase(), payments: out } });
   } catch (e: any) {
     fail(res, 500, e.message);
   }
